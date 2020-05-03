@@ -1,0 +1,12 @@
+/* Scale canvas with resize attribute to full size.
+ * From paper.js's website.
+ */
+canvas[resize] {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+    overflow: auto;
+    margin: 0;
+}
