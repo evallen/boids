@@ -1,6 +1,3 @@
-var bgRect;
-
-
 /**
  * Sets up a large rectangle that covers the screen to act
  * as the background with the specified color.
@@ -16,7 +13,7 @@ function setupBackground(backgroundColor) {
 
 
 /**
- * Make a new boid Symbol object.
+ * Make a new boid Path object.
  * Relative distances given in the parameters are from 0-1, and are scaled
  * by `boidSize`. 
  * @param {Number} boidSize The scaling factor that determines the size of 
@@ -26,9 +23,9 @@ function setupBackground(backgroundColor) {
  *                                  boid to the back indent.
  * @param {Number} boidWidth The relative width of the boid.
  * @param {String} boidColor The color of the boid.
- * @returns {Symbol} A boid symbol with the specified parameters.
+ * @returns {Path} A boid path with the specified parameters.
  */
-function makeBoidSymbol(boidSize, boidLength, boidCenterLength, boidWidth, boidColor) {
+function makeBoidPath(boidSize, boidLength, boidCenterLength, boidWidth, boidColor) {
     var boidPath = new paper.Path();
 
     boidPath.add([0, 0]);  // Nose
@@ -42,7 +39,20 @@ function makeBoidSymbol(boidSize, boidLength, boidCenterLength, boidWidth, boidC
     boidPath.closed = true;
     boidPath.fillColor = boidColor;
 
-    return new Symbol(boidPath);
+    return boidPath;
+}
+
+
+/**
+ * Create a new Obstacle.
+ * @param {paper.Point} position The position of the obstacle.
+ * @param {paper.Color} color The color of the obstacle.
+ * @param {Number} affectRadius The radius the obstacle affects other boids.
+ */
+function Obstacle(position, color, affectRadius) {
+    this.instance = new Path.Circle(position, 5);
+    this.instance.fillColor = color;
+    this.affectRadius = affectRadius;
 }
 
 
@@ -50,7 +60,7 @@ function makeBoidSymbol(boidSize, boidLength, boidCenterLength, boidWidth, boidC
  * Create a new Boid.
  * @param {paper.Point} position Where the boid will begin.
  * @param {paper.Point} velocity The velocity vector of the boid.
- * @param {paper.Symbol} boidSymbol A symbol to use to make the boid.
+ * @param {*} boidTemplate A path or symbol to copy to make the boid (specify which in `asSymbol`).
  * @param {Array<Number>} weights A 3-array of weights representing the relative
  *                                  weight of the cohesion, avoidance, and following
  *                                  vectors.
@@ -59,15 +69,24 @@ function makeBoidSymbol(boidSize, boidLength, boidCenterLength, boidWidth, boidC
  *                                      is how far they can see other boids and the avoidanceRadius
  *                                      is the distance within which they will steer clear of other boids.
  * @param {Number} maxSpeed The maximum speed of the boid.
+ * @param {Number} maxForce The maximum force on the boid.
+ * @param {Boolean} asSymbol Whether or not to use boidTemplate as a symbol (if false, we'll clone it). 
  */
-function Boid(position, velocity, boidSymbol, weights, perceptionRadii, maxSpeed) {
+function Boid(position, velocity, boidTemplate, weights, perceptionRadii, maxSpeed, maxForce, asSymbol) {
     this.velocity = velocity;
-    this.instance = boidSymbol.place(position);
-    this.instance.pivot = [0, 0];
+    if (asSymbol) {
+        this.instance = boidTemplate.place(position);
+    }
+    else {
+        this.instance = boidTemplate.clone();
+    }
+    this.instance.applyMatrix = false; // Needed for rotation to work.
+    this.instance.position = position;
     this.weights = weights;
     this.perceptionRadius = perceptionRadii[0]
     this.avoidanceRadius = perceptionRadii[1];
     this.maxSpeed = maxSpeed;
+    this.maxForce = maxForce;
 
     /**
      * Figure out what to do for the Boid. 
@@ -87,27 +106,54 @@ function Boid(position, velocity, boidSymbol, weights, perceptionRadii, maxSpeed
         this.instance.rotation = this.velocity.angle;
         this.instance.position += this.velocity;
         this.checkBorders();
+        this.instance.fillColor = {
+            hue: this.velocity.angle,
+            saturation: 1,
+            lightness: 0.6
+        };
     }
 
     /**
-     * Update the velocity based on the three rules
-     * (cohesion, avoidance, and following).
+     * Update the velocity based on the four rules
+     * (cohesion, avoidance, following, and obstacles).
      */
     this.applyForce = function () {
         this.velocity += this.getCohesionVector() * this.weights[0] +
             this.getAvoidanceVector() * this.weights[1] +
-            this.getFollowVector() * this.weights[2];
+            this.getFollowVector() * this.weights[2] + 
+            this.getObstacleVector() * this.weights[3];
 
         // Noise.
-        this.velocity += (Point.random() - new Point(.5, .5)) * 2 * .01
-
-        // Progressively speed up birds. 
-        this.velocity.length += 0.1;
+        this.velocity += (Point.random() - new Point(.5, .5)) * 2 * .1
 
         if (this.velocity.length > this.maxSpeed) {
             this.velocity.length = this.maxSpeed;
         }
     }
+
+
+    /**
+     * Given a desired velocity vector, get the required steer
+     * (acceleration). Assumes we want to go at the maximum
+     * speed in that direction. 
+     * Caps the steering force at `this.maxSpeed`. 
+     * @param {Point} desired The desired velocity vector.
+     * @returns {Point} The required steer vector.
+     */
+    this.getSteer = function (desired) {
+        if (desired.length == 0) {
+            return new Point(); // No steer.
+        }
+        else {
+            desired.length = this.maxSpeed;
+        }
+        var steer = desired - this.velocity;
+        if (steer.length > this.maxForce) {
+            steer.length = this.maxForce;
+        }
+        return steer;
+    }
+
 
     /**
      * Boids try to remain close to other boids.
@@ -115,23 +161,21 @@ function Boid(position, velocity, boidSymbol, weights, perceptionRadii, maxSpeed
      * Get the corresponding vector.
      */
     this.getCohesionVector = function () {
-        var cohesionVector = new Point();
+        var centerOfMass = new Point();
         var numBoidsSeen = 0;
         for (i in boids) {
             var displacement = boids[i].instance.position - this.instance.position;
-            if (boids[i] != this && 
-                displacement.length < this.perceptionRadius) {
-                cohesionVector += displacement.normalize() * 
-                                (this.perceptionRadius - displacement.length) / this.perceptionRadius;
+            if (displacement.length < this.perceptionRadius) {
+                centerOfMass += boids[i].instance.position;
                 numBoidsSeen++;
             }
         }
 
         if (numBoidsSeen > 0) {
-            cohesionVector /= numBoidsSeen;
+            centerOfMass /= numBoidsSeen;
         }
 
-        return cohesionVector.normalize();
+        return this.getSteer(centerOfMass - this.instance.position);
     }
 
     /**
@@ -147,12 +191,56 @@ function Boid(position, velocity, boidSymbol, weights, perceptionRadii, maxSpeed
             var displacement = boids[i].instance.position - this.instance.position;
             if (boids[i] != this && 
                 displacement.length < this.avoidanceRadius) {
-                avoidanceVector -= displacement.normalize() * 
-                                (this.avoidanceRadius - displacement.length) / this.avoidanceRadius;
+                avoidanceVector -= displacement.normalize() / displacement.length;
             }
         }
 
-        return avoidanceVector.normalize();
+        return this.getSteer(avoidanceVector);
+    }
+
+
+    /**
+     * Get the vector pointing away from nearby obstacles.
+     */
+    this.getObstacleVector = function () {
+        var obstacleVector = new Point();
+        var closestDist = 99999999999;
+
+        for (i in obstacles) {
+            // var ahead1 = this.instance.position + this.velocity * lookAhead;
+            // var ahead2 = ahead2 * 0.5;
+            // var disp1 = ahead1 - obstacles[i].instance.position;
+            // var disp2 = ahead2 - obstacles[i].instance.position;
+
+            // if (disp1.length < obstacles[i].affectRadius || disp2.length < obstacles[i].affectRadius) {
+            //     if (disp1.length < closestDist) {
+            //         closestDist = disp1.length;
+            //         obstacleVector = disp1;
+            //     }
+            //     if (disp2.length < closestDist) {
+            //         closestDist = disp2.length;
+            //         obstacleVector = disp2;
+            //     }
+            // }
+
+            // Find closest obstacle.
+            var disp = obstacles[i].instance.position - this.instance.position;
+
+            // Find orthogonal projection from the hitscan line to the obstacle.
+            var perp = disp - this.velocity * 
+                        ((disp.dot(this.velocity) / (this.velocity.length * this.velocity.length)))
+
+            if (perp.length < obstacles[i].affectRadius) {
+                // On a hit
+                if (disp.length < closestDist) {
+                    closestDist = disp.length;
+                    obstacleVector = perp * -1;
+                }
+            }
+        }
+
+        // return this.getSteer(obstacleVector);
+        return obstacleVector.normalize();
     }
 
 
@@ -161,23 +249,22 @@ function Boid(position, velocity, boidSymbol, weights, perceptionRadii, maxSpeed
      * Get the corresponding vector.
      */
     this.getFollowVector = function () {
-        var followVector = new Point();
+        var avgVelocity = new Point();
         var numBoidsSeen = 0;
         for (i in boids) {
             var displacement = boids[i].instance.position - this.instance.position;
             if (boids[i] != this &&
                 displacement.length < this.perceptionRadius) {
-                followVector += (boids[i].velocity - this.velocity) * 
-                                    (this.perceptionRadius - displacement.length) / this.perceptionRadius;
+                avgVelocity += boids[i].velocity;
                 numBoidsSeen++;
             }
         }
 
         if (numBoidsSeen > 0) {
-            followVector /= numBoidsSeen;
+            avgVelocity /= numBoidsSeen;
         }
 
-        return followVector.normalize();
+        return this.getSteer(avgVelocity);
     }
 
     /**
@@ -211,29 +298,24 @@ function onFrame() {
     for (i in boids) {
         boids[i].update();
     }
+
+    var nowTime = Date.now();
+    fpsCounter.content = "FPS: " + Math.round(1000 / (nowTime - lastFrameTime));
+    lastFrameTime = nowTime;
 }
 
 
 /**
- * Helper function to find the centroid of a boid. 
- * This is useful because the standard `Path.position` attribute
- * returns the center of the Path's bounding box, which is _not_ the
- * intuitive center of our boid arrow-like object.
- * 
- * Rotate around this, not `boid.position`. 
- * 
- * @param {Path} boid A Path that represents a Boid as created in `makeBoidSymbol`.
- * @returns {Point} The centroid of the boid.
+ * Create obstacles when the mouse is clicked.
  */
-function centroid(boid) {
-    var segments = boid.segments;
-    var vertex = segments[0].point;
-    var opposite = segments[1].point - (segments[1].point - segments[3].point) / 2
-    var c = vertex + (opposite - vertex) * 2 / 3;
-    return c;
+function onMouseDown(event) {
+    obstacles.push(new Obstacle(event.point, 'red', obstacleAffectRadius));
 }
 
+
 // --- main ---
+
+var bgRect;
 
 var boidSize = 15,
     boidLength = 1,
@@ -245,34 +327,54 @@ var backgroundColor = "#333333";
 var numBoids = 100;
 var defaultVelocity = 3;
 
-var defaultRelativeWeights = [1, 1.5, 1];
-var weightScale = 0.2; // If we want to scale all of them
+var defaultRelativeWeights = [1, 2, 1, 0.4];
+var weightScale = 1; // If we want to scale all of them
 var defaultWeights = [];
 
 for (i in defaultRelativeWeights) {
     defaultWeights.push(defaultRelativeWeights[i] * weightScale);
 }
 
-var defaultPerceptionRadii = [200, 50];
-var defaultMaxSpeed = 7;
+var defaultPerceptionRadii = [100, 25];
+var defaultMaxSpeed = 5;
+var defaultMaxForce = 0.03;
 
 setupBackground(backgroundColor);
 view.onResize = function (event) {
     setupBackground(backgroundColor);
 }
 
-var boidSymbol = makeBoidSymbol(boidSize, boidLength, boidCenterLength,
+var defaultBoidTemplate = makeBoidPath(boidSize, boidLength, boidCenterLength,
     boidWidth, boidColor);
+var usingSymbol = false;
+if (usingSymbol) {
+    defaultBoidTemplate = new Symbol (defaultBoidTemplate);
+}
+
 var boids = [];
+var obstacles = [];
+var obstacleAffectRadius = 20;
+var lookAhead = 20;
+
 for (var i = 0; i < numBoids; i++) {
     var newPosition = Point.random() * view.size;
     var newVelocity = new Point({
         length: defaultVelocity,
         angle: Math.random() * 360
     });
-    boids.push(new Boid(newPosition, newVelocity, boidSymbol, defaultWeights, 
-        defaultPerceptionRadii, defaultMaxSpeed));
+    boids.push(new Boid(newPosition, newVelocity, defaultBoidTemplate, defaultWeights, 
+        defaultPerceptionRadii, defaultMaxSpeed, defaultMaxForce, usingSymbol));
 }
 
+if (!usingSymbol) {
+    defaultBoidTemplate.remove();
+}
 
+var fpsCounter = new PointText({
+    point: [10, 20],
+    content: "FPS: ",
+    fillColor: "white",
+    fontSize: 10
+});
 
+var lastFrameTime = Date.now();
