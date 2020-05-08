@@ -3,5 +3,8 @@
         "module": "commonJS",
         "target": "es6"
     },
-    "include": ["node_modules/paper/dist/paper-full.js"]
+    "include": ["node_modules/paper/dist/paper-full.js"],
+    "typeAcquisition": {
+        "include": ["jquery"]
+    }
 }
