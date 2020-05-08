@@ -159,22 +159,6 @@ export default class Boid {
             var closestDist = 99999999999;
 
             for (let i in obstacles) {
-                // var ahead1 = this.instance.position + this.velocity * lookAhead;
-                // var ahead2 = ahead2 * 0.5;
-                // var disp1 = ahead1 - obstacles[i].instance.position;
-                // var disp2 = ahead2 - obstacles[i].instance.position;
-
-                // if (disp1.length < obstacles[i].affectRadius || disp2.length < obstacles[i].affectRadius) {
-                //     if (disp1.length < closestDist) {
-                //         closestDist = disp1.length;
-                //         obstacleVector = disp1;
-                //     }
-                //     if (disp2.length < closestDist) {
-                //         closestDist = disp2.length;
-                //         obstacleVector = disp2;
-                //     }
-                // }
-
                 // Find closest obstacle.
                 var disp = obstacles[i].instance.position.subtract(this.instance.position);
 

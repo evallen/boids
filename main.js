@@ -5,8 +5,6 @@ import Controller from './sidebar.js';
  * Represents an obstacle that the boids try to avoid. Appears as a red circle.
  */
 class Obstacle {
-    instance;
-    affectRadius;
 
     /**
      * Create a new Obstacle.
