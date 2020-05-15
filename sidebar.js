@@ -39,12 +39,6 @@ export default class Controller {
     }
 
     makeSidebar() {
-        // Title
-        $("#sidebar-inner").html("<h1>Settings</h1>");
-
-        // Submission button
-        $("#sidebar-inner").append(
-            "<input id='submit' value='Update & Restart' type='submit'/>");
         $("#submit").click(this.onSubmit.bind(this));
 
         // Generate settings
@@ -69,14 +63,17 @@ export default class Controller {
                     $(description).append("<li class='setting'>" + setting + "</li>");
                     $(description).append("<p class='tip'>" + this.parameters[category][setting]["doc"] + "</p>");
                     row.append(description);
-                    
-                    $(row).append("<td class='data'><input id='" + 
-                                    category + "-" + setting +
-                                    "' type='text' value='" + 
-                                    this.parameters[category][setting]["data"] + "'/></td>");
+
+                    $(row).append("<td class='data'><input id='" +
+                        category + "-" + setting +
+                        "' type='text' value='" +
+                        this.parameters[category][setting]["data"] + "'/></td>");
                     row.appendTo(table);
                 }
             }
+
+            // Append space.
+            $(table).append("<tr class='blank_row'><td colspan='3'></td></tr>");
         }
         $("#sidebar-inner").append(table);
     }
@@ -90,4 +87,4 @@ export default class Controller {
         new Runner(this.parameters);
     }
 
- }
+}
