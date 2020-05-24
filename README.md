@@ -2,6 +2,8 @@
 A simulation of flocking birds using the famous Boids algorithm by Craig Reynolds!
 View it [here](https://evallen.github.io/boids).
 
+![](animation.gif)
+
 ## What are boids?
 "Boids" are small, abstract creatures designed to represent flocking animals, such as birds or fish. They follow some very simple rules that can combine to form beautiful emergent behavior. 
 
